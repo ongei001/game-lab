@@ -10,6 +10,7 @@
     "test": "vitest",
     "lint": "eslint . --ext .ts",
     "server": "node server/server.js"
+    "lint": "eslint . --ext .ts"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^7.13.0",
