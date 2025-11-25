@@ -2,8 +2,6 @@ import './style.css';
 import { SURVEY_QUESTIONS } from './data/questions';
 import type { ClientRole, GameState, PlayerState, TeamChoice } from './types';
 import { playCorrect, playStrike, playTransition } from './sound';
-import { GameEngine } from './engine/gameEngine';
-import { DemoScene } from './games/demoScene';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) {
@@ -86,6 +84,31 @@ app.innerHTML = `
         <button id="start-round" class="primary">Start round</button>
         <button id="end-round" class="secondary">End round</button>
       </div>
+      
+      <!-- Buzzer for Face-Off -->
+      <div id="buzzer-container" style="display:none; text-align:center; margin-top:16px;">
+        <button id="buzz-btn" class="buzzer-btn">🔔 BUZZ IN!</button>
+      </div>
+      
+      <!-- Play or Pass Dialog (for Face-Off winner) -->
+      <div id="play-pass-dialog" class="modal" style="display:none;">
+        <div class="modal-content">
+          <h3>You won the Face-Off!</h3>
+          <p>Choose to PLAY or PASS control to the other team.</p>
+          <div class="h-stack">
+            <button id="choose-play" class="primary">PLAY</button>
+            <button id="choose-pass" class="secondary">PASS</button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Steal Attempt Form -->
+      <form id="steal-form" class="answer-form" style="display:none;">
+        <input id="steal-input" placeholder="Your steal attempt..." autocomplete="off" />
+        <button type="submit" class="primary">STEAL!</button>
+      </form>
+      
+      <!-- Regular Answer Form -->
       <form id="answer-form" class="answer-form">
         <input id="answer-input" placeholder="Type your best guess" autocomplete="off" />
         <button type="submit" class="primary">Submit answer</button>
@@ -117,6 +140,16 @@ const endRoundBtn = document.querySelector<HTMLButtonElement>('#end-round');
 const answerForm = document.querySelector<HTMLFormElement>('#answer-form');
 const answerInput = document.querySelector<HTMLInputElement>('#answer-input');
 const hostControls = document.querySelector<HTMLDivElement>('#host-controls');
+
+// New UI elements for Face-Off and Steal
+const buzzerContainer = document.querySelector<HTMLDivElement>('#buzzer-container');
+const buzzBtn = document.querySelector<HTMLButtonElement>('#buzz-btn');
+const playPassDialog = document.querySelector<HTMLDivElement>('#play-pass-dialog');
+const choosePlayBtn = document.querySelector<HTMLButtonElement>('#choose-play');
+const choosePassBtn = document.querySelector<HTMLButtonElement>('#choose-pass');
+const stealForm = document.querySelector<HTMLFormElement>('#steal-form');
+const stealInput = document.querySelector<HTMLInputElement>('#steal-input');
+
 
 SURVEY_QUESTIONS.forEach((question, index) => {
   const option = document.createElement('option');
@@ -171,9 +204,8 @@ const renderPlayers = (): void => {
   state.players.forEach((player) => {
     const li = document.createElement('li');
     li.dataset.id = player.id;
-    li.innerHTML = `<span>${player.name}</span><span class="pill team-${player.team}">${
-      player.team === 'teamA' ? 'Team A' : 'Team B'
-    }</span>`;
+    li.innerHTML = `<span>${player.name}</span><span class="pill team-${player.team}">${player.team === 'teamA' ? 'Team A' : 'Team B'
+      }</span>`;
     if (role === 'host') {
       li.classList.add('clickable');
       li.addEventListener('click', () => swapTeam(player));
@@ -192,8 +224,14 @@ const renderPhase = (): void => {
   if (!state || !phasePill) return;
   const map: Record<string, string> = {
     lobby: 'Lobby',
-    round: 'Round live',
-    between: 'Intermission',
+    'face-off': '⚡ Face-Off',
+    'play-or-pass': '🎯 Play or Pass',
+    'round-play': '▶️ Round Live',
+    'team-steal': '🎲 STEAL!',
+    'round-end': 'Round Complete',
+    'fast-money-p1': '⏱️ Fast Money P1',
+    'fast-money-p2': '⏱️ Fast Money P2',
+    'game-over': '🏆 Game Over',
   };
   phasePill.textContent = map[state.phase] ?? 'Waiting';
   phasePill.className = `pill pill-${state.phase}`;
@@ -242,12 +280,38 @@ const renderHostControls = (): void => {
 
 const renderAnswerForm = (): void => {
   if (!answerForm) return;
-  const canAnswer = state?.phase === 'round' && role === 'player';
+  const canAnswer = state?.phase === 'round-play' && role === 'player';
   answerForm.style.display = canAnswer ? 'flex' : 'none';
   if (canAnswer) {
     answerInput?.focus();
   }
 };
+
+const renderBuzzer = (): void => {
+  if (!buzzerContainer) return;
+  const showBuzzer = state?.phase === 'face-off' && role === 'player';
+  buzzerContainer.style.display = showBuzzer ? 'block' : 'none';
+};
+
+const renderPlayPassDialog = (): void => {
+  if (!playPassDialog) return;
+  // Only show to host for the Face-Off winner's decision
+  const showDialog = state?.phase === 'play-or-pass' && role === 'host' && state?.faceOffWinner;
+  playPassDialog.style.display = showDialog ? 'flex' : 'none';
+};
+
+const renderStealForm = (): void => {
+  if (!stealForm) return;
+  // Show steal form to stealing team's players
+  const playerState = state?.players.find(p => p.id === clientId);
+  const isOnStealingTeam = playerState && state?.stealingTeam === playerState.team;
+  const canSteal = state?.phase === 'team-steal' && role === 'player' && isOnStealingTeam;
+  stealForm.style.display = canSteal ? 'flex' : 'none';
+  if (canSteal) {
+    stealInput?.focus();
+  }
+};
+
 
 const applyAudio = (next: GameState): void => {
   if (!lastState) {
@@ -262,7 +326,7 @@ const applyAudio = (next: GameState): void => {
   if (teamAStrikeUp || teamBStrikeUp) {
     playStrike();
   }
-  if (lastState.phase !== next.phase && next.phase === 'between') {
+  if (lastState.phase !== next.phase && next.phase === 'round-end') {
     playTransition();
   }
   lastState = next;
@@ -279,6 +343,9 @@ const applyState = (next: GameState): void => {
   renderMessage();
   renderAnswerForm();
   renderHostControls();
+  renderBuzzer();
+  renderPlayPassDialog();
+  renderStealForm();
   if (state?.code && role === 'host') {
     hostCode!.textContent = `Join code: ${state.code}`;
   }
@@ -286,7 +353,7 @@ const applyState = (next: GameState): void => {
 
 const startTimerLoop = (): void => {
   const tick = () => {
-    if (state?.roundEndsAt && state.phase === 'round') {
+    if (state?.roundEndsAt && state.phase === 'round-play') {
       const remaining = Math.max(0, state.roundEndsAt - Date.now());
       const seconds = Math.ceil(remaining / 1000);
       const baseDuration = state.roundDuration ?? Number(durationInput?.value) ?? 45;
@@ -338,50 +405,36 @@ answerForm?.addEventListener('submit', (event) => {
   }
 });
 
-ensureSocket();
-startTimerLoop();
-app.innerHTML = `
-  <div class="canvas-shell">
-    <header>
-      <h1>Game Lab Starter</h1>
-      <div class="controls">
-        <button id="reset">Reset Scene</button>
-        <span class="info">Use arrows or WASD to move the orb.</span>
-      </div>
-    </header>
-    <canvas id="stage" width="800" height="520"></canvas>
-  </div>
-`;
-
-const canvas = document.querySelector<HTMLCanvasElement>('#stage');
-if (!canvas) {
-  throw new Error('Unable to find canvas');
-}
-
-const engine = new GameEngine(canvas);
-const scene = new DemoScene();
-engine.setScene(scene);
-engine.start();
-
-const resetButton = document.querySelector<HTMLButtonElement>('#reset');
-resetButton?.addEventListener('click', () => {
-  engine.reset();
+// Buzzer event
+buzzBtn?.addEventListener('click', () => {
+  if (role !== 'player' || state?.phase !== 'face-off') return;
+  send({ type: 'buzz-in' });
+  // Disable button after clicking to prevent double-buzz
+  if (buzzBtn) buzzBtn.disabled = true;
 });
 
-window.addEventListener('keydown', (event) => {
-  if (event.key.toLowerCase() === 'r') {
-    engine.reset();
+// Play or Pass choice
+choosePlayBtn?.addEventListener('click', () => {
+  if (role !== 'host' || state?.phase !== 'play-or-pass') return;
+  send({ type: 'choose-play-pass', choice: 'play' });
+});
+
+choosePassBtn?.addEventListener('click', () => {
+  if (role !== 'host' || state?.phase !== 'play-or-pass') return;
+  send({ type: 'choose-play-pass', choice: 'pass' });
+});
+
+// Steal attempt
+stealForm?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  if (role !== 'player' || state?.phase !== 'team-steal') return;
+  const text = stealInput?.value.trim();
+  if (text) {
+    send({ type: 'steal-attempt', text });
+    stealInput.value = '';
   }
 });
 
-const resizeCanvas = (): void => {
-  const scale = window.devicePixelRatio || 1;
-  canvas.width = Math.min(960, window.innerWidth - 48) * scale;
-  canvas.height = 520 * scale;
-  canvas.style.width = `${canvas.width / scale}px`;
-  canvas.style.height = `${canvas.height / scale}px`;
-  engine.reset();
-};
 
-resizeCanvas();
-window.addEventListener('resize', resizeCanvas);
+ensureSocket();
+startTimerLoop();
