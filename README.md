@@ -1,37 +1,39 @@
+# Family Feud Live (Game Lab)
 
-# Game Lab 🎮
+A lightweight, browser-based Family Feud style game built for remote play over Zoom, Teams, and Meet. A host spins up a session with a short join code, players join from their browsers, and everyone stays in sync through a tiny WebSocket server.
 
-A playground repository for experimenting with game ideas, mechanics, and small prototypes.
+## How to run locally
 
-## Goals
+1. Install dependencies
+   ```bash
+   npm install
+   ```
+2. Start the real-time WebSocket server (default: `ws://localhost:8787`)
+   ```bash
+   npm run server
+   ```
+3. Start the Vite dev server (serves the front-end)
+   ```bash
+   npm run dev -- --host
+   ```
+4. Open the printed URL in your browser. Host clicks **Start as host** to generate a code, players enter that code plus their name.
 
-- Rapidly prototype small games
-- Reuse a shared **engine/core** where possible
-- Keep assets organized and easy to reuse
-- Practice clean code, version control, and documentation
+> Production hosting: `npm run build` to create `dist/`, serve it with any static host, and run `node server/server.js` on a small Node process reachable by clients. Set `VITE_SOCKET_URL` if the WebSocket server is on another host/port.
 
-## Tech Stack
+## Gameplay overview
+- Host controls question selection, round start/stop, and can move players between Team A/B.
+- Players join with the code, see the current question, and submit answers during the countdown.
+- Answers are matched (case-insensitive) against a built-in survey list. Correct answers reveal on the board and add their point value to the answering team. Wrong answers add strikes.
+- Sounds play for correct answers, strikes, and transitions to keep energy up during calls.
+- Scores persist across rounds until you refresh.
 
-- Language: _e.g. TypeScript / C# / Python / C++_
-- Engine / Framework: _e.g. Unity / Godot / Phaser / Pygame_
-- Tools:
-  - Git + GitHub for version control
-  - _Add build tools, package managers, etc._
+## Project layout
+- `src/` – Vite TypeScript front-end (UI, sounds, WebSocket client)
+- `server/` – Minimal WebSocket server and survey question bank
+- `docs/design/family-feud.md` – Full rules, flow, and UX notes
+- `assets/`, `docs/notes`, `tests/` – Ready for future expansions
 
-## Structure
-
-```text
-src/
-  engine/    # reusable systems
-  common/    # shared helpers
-  games/     # each game in its own folder
-assets/
-  sprites/
-  audio/
-  fonts/
-  shaders/
-docs/
-  design/    # game design docs & diagrams
-  notes/     # random thoughts, ideas, and logs
-tests/
-  ...        # unit / integration tests
+## Zoom tips
+- Share your screen so everyone sees the board; players still join separately to submit answers.
+- Use the intermission state to banter and confirm scores.
+- Keep the timer tight (30–60 seconds) to maintain pacing.
