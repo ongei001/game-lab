@@ -1,37 +1,43 @@
-
 # Game Lab 🎮
 
-A playground repository for experimenting with game ideas, mechanics, and small prototypes.
+A playground repository for experimenting with game ideas, mechanics, and small prototypes. The repo now ships with a lightweight TypeScript + Vite starter so you can jump straight into gameplay code.
 
-## Goals
+## Features
 
-- Rapidly prototype small games
-- Reuse a shared **engine/core** where possible
-- Keep assets organized and easy to reuse
-- Practice clean code, version control, and documentation
+- 🧩 Minimal 2D engine loop (update + draw) wired to an HTML canvas
+- ⌨️ Keyboard input helper with WASD/arrow support
+- 🧪 Testing + linting with Vitest and ESLint
+- 🗂️ Ready-made folders for assets, docs, and future games
 
-## Tech Stack
+## Getting started
 
-- Language: _e.g. TypeScript / C# / Python / C++_
-- Engine / Framework: _e.g. Unity / Godot / Phaser / Pygame_
-- Tools:
-  - Git + GitHub for version control
-  - _Add build tools, package managers, etc._
+1. Install dependencies: `npm install`
+2. Start the dev server: `npm run dev`
+3. Run unit tests: `npm test`
+4. Lint TypeScript: `npm run lint`
 
-## Structure
+> Tip: Press `R` or click **Reset Scene** in the demo to re-center the orb.
+
+## Project structure
 
 ```text
 src/
-  engine/    # reusable systems
-  common/    # shared helpers
-  games/     # each game in its own folder
+  engine/      # reusable systems (game loop, input, scenes)
+  common/      # small helpers (math, types, utilities)
+  games/       # each prototype/game in its own module
 assets/
-  sprites/
-  audio/
+  sprites/     # 2D sprites & atlases
+  audio/       # sound effects & music
   fonts/
   shaders/
 docs/
-  design/    # game design docs & diagrams
-  notes/     # random thoughts, ideas, and logs
-tests/
-  ...        # unit / integration tests
+  design/      # design docs & diagrams
+  notes/       # ideas and logs
+tests/         # integration/visual tests can live here
+```
+
+## Next steps
+
+- Add more scene examples (tilemaps, physics toys, UI overlays)
+- Expand the engine with sprites, tweens, audio, and ECS-style entities
+- Wire up CI to run `npm test` and `npm run lint`
