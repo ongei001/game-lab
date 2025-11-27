@@ -89,3 +89,58 @@ export const SURVEY_QUESTIONS = [
     ],
   },
 ];
+
+export const FAST_MONEY_SETS = [
+  [
+    {
+      prompt: "Name a day of the week.",
+      answers: [
+        { text: "Friday", points: 42 },
+        { text: "Saturday", points: 28 },
+        { text: "Sunday", points: 15 },
+        { text: "Monday", points: 8 },
+        { text: "Wednesday", points: 4 },
+      ]
+    },
+    {
+      prompt: "Name a fruit you eat in the summer.",
+      answers: [
+        { text: "Watermelon", points: 55 },
+        { text: "Strawberry", points: 22 },
+        { text: "Peach", points: 11 },
+        { text: "Grape", points: 6 },
+        { text: "Cherry", points: 4 },
+      ]
+    },
+    {
+      prompt: "Name something you buy by the roll.",
+      answers: [
+        { text: "Toilet paper", points: 52 },
+        { text: "Paper towels", points: 24 },
+        { text: "Tape", points: 12 },
+        { text: "Wrapping paper", points: 7 },
+        { text: "Aluminum foil", points: 3 },
+      ]
+    },
+    {
+      prompt: "Name a reason people wake up at 2 AM.",
+      answers: [
+        { text: "Bathroom", points: 48 },
+        { text: "Baby crying", points: 21 },
+        { text: "Bad dream", points: 14 },
+        { text: "Thirsty", points: 9 },
+        { text: "Noise", points: 5 },
+      ]
+    },
+    {
+      prompt: "Name an animal you might see at the zoo.",
+      answers: [
+        { text: "Lion", points: 38 },
+        { text: "Monkey", points: 26 },
+        { text: "Elephant", points: 19 },
+        { text: "Tiger", points: 10 },
+        { text: "Bear", points: 5 },
+      ]
+    }
+  ]
+];

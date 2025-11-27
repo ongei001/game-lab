@@ -83,6 +83,17 @@ export interface GameState {
   fastMoneyP2Answers: FastMoneyAnswer[];
   fastMoneyTimeRemaining: number;
 
+  // Fast Money
+  fastMoney?: {
+    setIndex: number;
+    questions: SurveyQuestion[];
+    p1Answers: Array<{ text: string; points: number }>;
+    p2Answers: Array<{ text: string; points: number }>;
+    currentQuestionIndex: number;
+    p1Score: number;
+    p2Score: number;
+  };
+
   // Win condition
   winningTeam: TeamId | null;
 }

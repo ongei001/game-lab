@@ -1,7 +1,7 @@
 import { createServer } from 'http';
 import { randomUUID } from 'crypto';
 import { WebSocketServer } from 'ws';
-import { SURVEY_QUESTIONS } from './questions.js';
+import { SURVEY_QUESTIONS, FAST_MONEY_SETS } from './questions.js';
 
 const PORT = process.env.PORT || 8787;
 const games = new Map(); // code -> game
@@ -27,11 +27,14 @@ const baseState = () => ({
   // Face-Off mechanics
   faceOffBuzzers: [],
   faceOffWinner: null,
+  faceOffAnswers: [], // Track both players' answers and rankings
+  faceOffPhase: null, // 'awaiting-first' | 'awaiting-second' | 'comparing'
 
   // Turn-based play
   controllingTeam: null, // Team that won Face-Off/is playing
   currentTurnTeam: null, // Team whose turn it is currently
   currentPlayerIndex: 0, // Index within the team's players
+  currentTurnPlayerIndex: 0, // Which player number (0-4) is answering
 
   // Steal opportunity
   stealingTeam: null,
@@ -45,6 +48,17 @@ const baseState = () => ({
 
   // Win condition
   winningTeam: null,
+
+  // Fast Money State
+  fastMoney: {
+    setIndex: 0,
+    questions: [],
+    p1Answers: [],
+    p2Answers: [],
+    currentQuestionIndex: 0,
+    p1Score: 0,
+    p2Score: 0,
+  }
 });
 
 const httpServer = createServer();
@@ -66,6 +80,56 @@ const evaluateAnswer = (question, text, revealed) => {
   return question.answers.find((answer) =>
     !already.has(normalize(answer.text)) && normalize(answer.text).includes(normalized)
   );
+};
+
+const checkWinCondition = (game) => {
+  const WIN_THRESHOLD = 300; // LOW FOR TESTING
+  const MAX_ROUNDS = 5;
+
+  const scoreA = game.teams.teamA.score;
+  const scoreB = game.teams.teamB.score;
+
+  // Check if either team reached 300 points
+  if (scoreA >= WIN_THRESHOLD || scoreB >= WIN_THRESHOLD) {
+    if (scoreA > scoreB) {
+      game.winningTeam = 'teamA';
+      game.phase = 'game-over';
+      game.message = `🏆 ${game.teams.teamA.name} WINS! Final Score: ${scoreA} - ${scoreB}`;
+      return true;
+    } else if (scoreB > scoreA) {
+      game.winningTeam = 'teamB';
+      game.phase = 'game-over';
+      game.message = `🏆 ${game.teams.teamB.name} WINS! Final Score: ${scoreB} - ${scoreA}`;
+      return true;
+    } else {
+      // Tie at 300+ - Sudden Death
+      game.phase = 'round-end';
+      game.message = `TIE! Sudden Death next round!`;
+      return false;
+    }
+  }
+
+  // Check if max rounds reached
+  if (game.currentRound >= MAX_ROUNDS) {
+    if (scoreA > scoreB) {
+      game.winningTeam = 'teamA';
+      game.phase = 'game-over';
+      game.message = `🏆 ${game.teams.teamA.name} WINS! Final Score: ${scoreA} - ${scoreB}`;
+      return true;
+    } else if (scoreB > scoreA) {
+      game.winningTeam = 'teamB';
+      game.phase = 'game-over';
+      game.message = `🏆 ${game.teams.teamB.name} WINS! Final Score: ${scoreB} - ${scoreA}`;
+      return true;
+    } else {
+      // Tie after 5 rounds - Sudden Death
+      game.phase = 'round-end';
+      game.message = `TIE after ${MAX_ROUNDS} rounds! Sudden Death next!`;
+      return false;
+    }
+  }
+
+  return false;
 };
 
 const broadcastState = (code) => {
@@ -165,6 +229,20 @@ wss.on('connection', (ws) => {
         ws.send(JSON.stringify({ type: 'error', message: 'Question not found' }));
         return;
       }
+
+      // Increment round counter
+      game.currentRound++;
+
+      // Set point multiplier based on round
+      // Round 1: 1x, Rounds 2-3: 2x, Rounds 4-5: 3x
+      if (game.currentRound === 1) {
+        game.pointMultiplier = 1;
+      } else if (game.currentRound >= 2 && game.currentRound <= 3) {
+        game.pointMultiplier = 2;
+      } else {
+        game.pointMultiplier = 3;
+      }
+
       // Start with Face-Off phase
       game.phase = 'face-off';
       game.questionIndex = questionIndex;
@@ -175,36 +253,96 @@ wss.on('connection', (ws) => {
       game.teams.teamB.strikes = 0;
       game.faceOffBuzzers = [];
       game.faceOffWinner = null;
+      game.faceOffAnswers = [];
+      game.faceOffPhase = 'awaiting-first';
       game.controllingTeam = null;
       game.currentTurnTeam = null;
       game.currentPlayerIndex = 0;
-      game.message = '⚡ Face-Off! First to buzz in!';
+      game.message = `⚡ Round ${game.currentRound} Face-Off! (${game.pointMultiplier}x points)`;
       broadcastState(game.code);
       return;
     }
 
-    // Face-Off: Player buzzes in
+
+    // Face-Off: Player buzzes in with answer
     if (type === 'buzz-in') {
       if (game.phase !== 'face-off') return;
       const player = game.players.find((p) => p.id === clientId);
       if (!player) return;
 
-      // Record the buzz-in with timestamp
-      const buzzEvent = {
+      const { answer } = parsed;
+      if (!answer || !answer.trim()) {
+        ws.send(JSON.stringify({ type: 'error', message: 'Answer required' }));
+        return;
+      }
+
+      // Find answer ranking in current question
+      const normalizedAnswer = answer.trim().toLowerCase();
+      const matchedAnswer = game.currentQuestion.answers.find(
+        (a) => a.text.toLowerCase() === normalizedAnswer
+      );
+
+      const ranking = matchedAnswer
+        ? game.currentQuestion.answers.indexOf(matchedAnswer) + 1  // 1-indexed
+        : 999; // Invalid answer gets worst ranking
+
+      const faceOffAnswer = {
         playerId: player.id,
         playerName: player.name,
         team: player.team,
+        answer: answer.trim(),
+        ranking: ranking,
+        isTopAnswer: ranking === 1,
+        points: matchedAnswer ? matchedAnswer.points : 0,
         timestamp: Date.now(),
       };
 
-      // Only record if first buzzer or very close (within 50ms of first)
-      if (game.faceOffBuzzers.length === 0) {
-        game.faceOffBuzzers.push(buzzEvent);
-        game.faceOffWinner = player;
-        game.phase = 'play-or-pass';
-        game.message = `${player.name} buzzed in first! Choose to Play or Pass.`;
+      // First player to buzz
+      if (game.faceOffAnswers.length === 0) {
+        game.faceOffAnswers.push(faceOffAnswer);
+        game.faceOffPhase = 'awaiting-second';
+
+        if (faceOffAnswer.isTopAnswer) {
+          // First player has #1 answer - their team wins control
+          game.faceOffWinner = player;
+          game.phase = 'play-or-pass';
+          game.message = `${player.name} gave the #1 answer! ${game.teams[player.team].name} chooses to Play or Pass.`;
+        } else {
+          // Wait for second player
+          game.message = `${player.name} answered "${faceOffAnswer.answer}" (Rank #${ranking}). Waiting for second player...`;
+        }
+
         broadcastState(game.code);
+        return;
       }
+
+      // Second player to buzz
+      if (game.faceOffAnswers.length === 1) {
+        const firstAnswer = game.faceOffAnswers[0];
+
+        // Prevent same team from buzzing twice
+        if (player.team === firstAnswer.team) {
+          ws.send(JSON.stringify({ type: 'error', message: 'Waiting for opposing team' }));
+          return;
+        }
+
+        game.faceOffAnswers.push(faceOffAnswer);
+        game.faceOffPhase = 'comparing';
+
+        // Compare rankings - lower ranking number wins (1 is best)
+        const winner = faceOffAnswer.ranking < firstAnswer.ranking ? faceOffAnswer : firstAnswer;
+        const winnerPlayer = game.players.find((p) => p.id === winner.playerId);
+
+        game.faceOffWinner = winnerPlayer;
+        game.phase = 'play-or-pass';
+        game.message = `${winnerPlayer.name} wins Face-Off with "${winner.answer}" (Rank #${winner.ranking})! ${game.teams[winnerPlayer.team].name} chooses to Play or Pass.`;
+
+        broadcastState(game.code);
+        return;
+      }
+
+      // Already have two answers - shouldn't happen
+      ws.send(JSON.stringify({ type: 'error', message: 'Face-Off already complete' }));
       return;
     }
 
@@ -279,15 +417,79 @@ wss.on('connection', (ws) => {
         game.message = `Steal failed! Points remain with ${game.teams[game.controllingTeam].name}.`;
       }
 
-      // Move to round-end
-      game.phase = 'round-end';
+      // Check for win condition
+      if (!checkWinCondition(game)) {
+        // No winner yet, move to round-end
+        game.phase = 'round-end';
+      }
+
       game.roundEndsAt = null;
       broadcastState(game.code);
       return;
     }
 
+    if (type === 'start-fast-money') {
+      // Initialize Fast Money
+      const setIndex = Math.floor(Math.random() * FAST_MONEY_SETS.length);
+      game.fastMoney = {
+        setIndex,
+        questions: FAST_MONEY_SETS[setIndex],
+        p1Answers: [],
+        p2Answers: [],
+        currentQuestionIndex: 0,
+        p1Score: 0,
+        p2Score: 0,
+      };
+      game.phase = 'fast-money-p1';
+      game.roundDuration = 20; // 20 seconds for player 1
+      game.roundEndsAt = Date.now() + 20000;
+      game.message = 'Fast Money: Player 1 (20 seconds)';
+      broadcastState(game.code);
+    }
+
+    if (type === 'fast-money-answer') {
+      const { answer, questionIndex } = parsed;
+      const isP1 = game.phase === 'fast-money-p1';
+      const question = game.fastMoney.questions[questionIndex];
+
+      // Find matching answer
+      const normalized = normalize(answer);
+      const match = question.answers.find(a => normalize(a.text) === normalized);
+      const points = match ? match.points : 0;
+      const text = match ? match.text : answer; // Use official text if match, else raw input
+
+      if (isP1) {
+        game.fastMoney.p1Answers[questionIndex] = { text, points };
+        game.fastMoney.p1Score += points;
+      } else {
+        // Check duplicate with P1
+        const p1Answer = game.fastMoney.p1Answers[questionIndex];
+        if (p1Answer && normalize(p1Answer.text) === normalized) {
+          // Duplicate! 0 points (buzzer sound on client)
+          game.fastMoney.p2Answers[questionIndex] = { text: 'DUPLICATE', points: 0 };
+        } else {
+          game.fastMoney.p2Answers[questionIndex] = { text, points };
+          game.fastMoney.p2Score += points;
+        }
+      }
+      broadcastState(game.code);
+    }
+
+    if (type === 'finish-fast-money-p1') {
+      game.phase = 'fast-money-p2';
+      game.roundDuration = 25; // 25 seconds for player 2
+      game.roundEndsAt = Date.now() + 25000;
+      game.message = 'Fast Money: Player 2 (25 seconds)';
+      game.fastMoney.currentQuestionIndex = 0; // Reset for P2
+      broadcastState(game.code);
+    }
+
     if (type === 'finish-round' && game.hostId === clientId) {
-      game.phase = 'round-end';
+      // Check for win condition first
+      if (!checkWinCondition(game)) {
+        // No winner yet, go to round-end
+        game.phase = 'round-end';
+      }
       game.roundEndsAt = null;
       broadcastState(game.code);
       return;
